@@ -1,58 +1,64 @@
-const express = require("express");
-const axios = require("axios");
-const { URL } = require("url");
-const m3u8Parser = require("m3u8-parser");
-const cors = require("cors");
+const http = require('http');
+const https = require('https');
+const url = require('url');
+const serverConfig = require('./config'); // Update the path if needed
 
-const app = express();
-const PORT = 8080;
+const server = http.createServer((req, res) => {
+  const parsedUrl = url.parse(req.url);
+  const identifierMatch = parsedUrl.pathname.match(/^\/?(\d+)\/(.*)/);
 
-app.use(cors());
+  const identifier = identifierMatch ? identifierMatch[1] : null;
 
-// Proxy M3U8 requests
-app.get("/proxy", async (req, res) => {
-    const targetUrl = req.query.url;
-    if (!targetUrl) return res.status(400).send("Missing URL parameter");
-    
-    try {
-        const response = await axios.get(targetUrl, { timeout: 5000 });
-        let parser = new m3u8Parser.Parser();
-        parser.push(response.data);
-        parser.end();
+  if (identifier) {
+    const config = serverConfig[identifier] || serverConfig['default'];
+    hostname = config.hostname;
+    port = config.port;
+    headers = { ...config.headers };
+  }
+  const query = parsedUrl.query ? `?${parsedUrl.query}` : '';
 
-        let playlist = parser.manifest;
-        let baseUrl = new URL(targetUrl).origin;
+  const currentDate = new Date().toUTCString();
 
-        // Rewrite segment URLs
-        playlist.segments.forEach(segment => {
-            if (!segment.uri.startsWith("http")) {
-                segment.uri = `${baseUrl}/${segment.uri}`;
-            }
-            segment.uri = `/segment?url=${encodeURIComponent(segment.uri)}`;
-        });
+  const options = {
+    hostname: hostname,
+    port: port,
+    path: '/' + (identifierMatch ? identifierMatch[2] : '') + query,
+    method: req.method,
+    headers: headers,
+  };
 
-        let updatedManifest = `#EXTM3U\n`;
-        updatedManifest += playlist.segments.map(seg => `#EXTINF:${seg.duration},\n${seg.uri}`).join("\n");
-        
-        res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
-        res.send(updatedManifest);
-    } catch (error) {
-        res.status(500).send("Failed to fetch M3U8 file");
-    }
+  console.log(options);
+
+  // Enable CORS - Add the following headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET, POST, PUT, DELETE');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    // Respond to the preflight request without proxying it
+    res.writeHead(200);
+    res.end();
+  } else {
+    // Handle the actual request and proxy it
+    const proxyReq = https.request(options, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      proxyRes.pipe(res, { end: true });
+    });
+
+    req.pipe(proxyReq, { end: true });
+
+    proxyReq.on('error', (err) => {
+      console.error('Proxy error:', err.message);
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end('Internal Server Error');
+    });
+
+    proxyReq.end();
+  }
 });
 
-// Proxy TS segment requests
-app.get("/segment", async (req, res) => {
-    const segmentUrl = req.query.url;
-    if (!segmentUrl) return res.status(400).send("Missing segment URL");
-    
-    try {
-        const response = await axios({ url: segmentUrl, responseType: "stream" });
-        res.setHeader("Content-Type", "video/mp2t");
-        response.data.pipe(res);
-    } catch (error) {
-        res.status(500).send("Failed to fetch video segment");
-    }
-});
+const PORT = 8333;
 
-app.listen(PORT, () => console.log(`M3U8 Proxy Server running on port ${PORT}`));
+server.listen(PORT, () => {
+  console.log(`Proxy server listening on port ${PORT}`);
+});
