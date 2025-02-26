@@ -52,6 +52,10 @@ app.get("/proxy/segment", async (req, res) => {
     }
 });
 
+app.get("/", (req, res) => {
+    res.send("Hello, World!");
+})
+
 // Start the proxy server
 app.listen(PORT, () => {
     console.log(`Proxy server running at http://localhost:${PORT}`);
