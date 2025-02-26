@@ -1,59 +1,50 @@
-const express = require('express');
+const http = require('http');
 const https = require('https');
-const cors = require('cors');
-const { URL } = require('url');
+const url = require('url');
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-const STREAMS = {
-  "rick-and-morty": "https://adultswim-vodlive.cdn.turner.com/live/rick-and-morty/master.m3u8",
-};
+const TARGET_URL = 'https://adultswim-vodlive.cdn.turner.com/live/rick-and-morty/'; // Base URL
+const PORT = 8333;
 
-app.use(cors());
+const server = http.createServer((req, res) => {
+  const parsedUrl = url.parse(req.url);
+  const targetPath = parsedUrl.pathname.replace(/^\/proxy\//, ''); // Remove "/proxy/" prefix
 
-// Function to modify M3U8 playlist to proxy streams and segments
-function processM3U8(m3u8, serverHost, streamId) {
-  return m3u8.replace(/(^(?!#).*\.m3u8)/gm, (line) => {
-    return `${serverHost}/stream/${streamId}?url=${encodeURIComponent(line)}`;
-  }).replace(/(^(?!#).*\.ts)/gm, (line) => {
-    return `${serverHost}/segment/${streamId}?url=${encodeURIComponent(line)}`;
-  });
-}
-
-app.get('/stream/:streamId', (req, res) => {
-  const streamId = req.params.streamId;
-  const targetUrl = STREAMS[streamId];
-
-  if (!targetUrl) {
-    return res.status(404).json({ error: "Stream not found" });
+  if (!targetPath) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('Bad Request: No target path provided.');
+    return;
   }
 
-  https.get(targetUrl, (proxyRes) => {
-    let data = [];
-    proxyRes.on('data', (chunk) => data.push(chunk));
-    proxyRes.on('end', () => {
-      const m3u8 = Buffer.concat(data).toString();
-      const modified = processM3U8(m3u8, req.protocol + "://" + req.get("host"), streamId);
-      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-      res.send(modified);
+  const proxyUrl = `${TARGET_URL}${targetPath}${parsedUrl.search || ''}`;
+
+  console.log(`Proxying request to: ${proxyUrl}`);
+
+  const options = url.parse(proxyUrl);
+  options.method = req.method;
+  options.headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+    'Referer': 'https://www.adultswim.com/',
+    'Origin': 'https://www.adultswim.com/',
+  };
+
+  const proxyReq = https.request(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, {
+      ...proxyRes.headers,
+      'Access-Control-Allow-Origin': '*',
     });
-  }).on('error', () => {
-    res.status(500).json({ error: "Error fetching stream" });
+
+    proxyRes.pipe(res, { end: true });
   });
+
+  proxyReq.on('error', (err) => {
+    console.error('Proxy error:', err.message);
+    res.writeHead(500, { 'Content-Type': 'text/plain' });
+    res.end('Internal Server Error');
+  });
+
+  req.pipe(proxyReq, { end: true });
 });
 
-app.get('/segment/:streamId', (req, res) => {
-  const segmentUrl = req.query.url;
-  if (!segmentUrl) return res.status(400).json({ error: "No segment URL provided" });
-
-  https.get(segmentUrl, (proxyRes) => {
-    res.setHeader('Content-Type', proxyRes.headers['content-type']);
-    proxyRes.pipe(res);
-  }).on('error', () => {
-    res.status(500).json({ error: "Error fetching segment" });
-  });
-});
-
-app.listen(PORT, () => {
-  console.log(`M3U8 Geo Proxy running on port ${PORT}`);
+server.listen(PORT, () => {
+  console.log(`Proxy server running at http://localhost:${PORT}`);
 });
