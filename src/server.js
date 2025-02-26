@@ -8,9 +8,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 
-app.use("/stream/:streamId", validateParams);
-
-app.use("/stream/:streamId", proxyStream);
+app.get("/stream/:streamId", validateParams, proxyStream);
 
 app.get("/", (req, res) => {
   res.send("M3U8 Proxy Server is running...");
