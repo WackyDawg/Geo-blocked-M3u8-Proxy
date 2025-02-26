@@ -1,5 +1,5 @@
 const https = require("https");
-const config = require("../config.json");
+const config = require("../config/config.json");
 
 module.exports = (req, res) => {
   const streamId = req.params.streamId;
