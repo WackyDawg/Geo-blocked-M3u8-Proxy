@@ -41,6 +41,10 @@ app.get("/proxy/:streamKey", async (req, res) => {
     }
 });
 
+app.get('/', (req, res) => {
+    res.send('Proxy server running!');
+});
+
 app.listen(PORT, () => {
     console.log(`Proxy server running on http://localhost:${PORT}`);
 });
