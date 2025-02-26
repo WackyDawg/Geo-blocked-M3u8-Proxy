@@ -41,20 +41,25 @@ module.exports = (req, res) => {
 };
 
 function processM3U8(data, baseUrl) {
-  return data
-    .split("\n")
-    .map((line) => {
-      if (line.startsWith("#") || line.trim() === "") {
-        return line;
-      } else {
-        try {
-          const absoluteUrl = new URL(line, baseUrl).href;
-          const encodedUrl = base64urlEncode(absoluteUrl);
-          return `/segment/${encodedUrl}`;
-        } catch (err) {
-          return line;
-        }
+  return data.split('\n').map(line => {
+    if (line.startsWith('#') || line.trim() === '') return line;
+
+    try {
+      const absoluteUrl = new URL(line, baseUrl).href;
+      const encodedUrl = base64urlEncode(absoluteUrl);
+
+      // Handle TS segments
+      if (absoluteUrl.endsWith('.ts')) {
+        return `/segment/${encodedUrl}`;
       }
-    })
-    .join("\n");
+      // Handle nested M3U8 playlists
+      else if (absoluteUrl.endsWith('.m3u8')) {
+        return `/stream/url/${encodedUrl}`;
+      }
+
+      return line;
+    } catch (err) {
+      return line;
+    }
+  }).join('\n');
 }
