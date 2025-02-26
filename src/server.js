@@ -2,7 +2,7 @@ const http = require('http');
 const https = require('https');
 const url = require('url');
 
-const TARGET_URL = 'https://adultswim-vodlive.cdn.turner.com/live/rick-and-morty/'; // Base URL
+const TARGET_URL = 'https://adultswim-vodlive.cdn.turner.com/live/rick-and-morty/stream_de.m3u8'; // Base URL
 const PORT = 8333;
 
 const server = http.createServer((req, res) => {
