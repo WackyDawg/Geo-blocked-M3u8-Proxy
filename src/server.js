@@ -1,50 +1,46 @@
-const http = require('http');
-const https = require('https');
-const url = require('url');
+const express = require("express");
+const axios = require("axios");
+const cors = require("cors");
 
-const TARGET_URL = 'https://adultswim-vodlive.cdn.turner.com/live/rick-and-morty/stream_de.m3u8'; // Base URL
-const PORT = 8333;
+const app = express();
+const PORT = 3000;
 
-const server = http.createServer((req, res) => {
-  const parsedUrl = url.parse(req.url);
-  const targetPath = parsedUrl.pathname.replace(/^\/proxy\//, ''); // Remove "/proxy/" prefix
+app.use(cors()); // Allow cross-origin requests
 
-  if (!targetPath) {
-    res.writeHead(400, { 'Content-Type': 'text/plain' });
-    res.end('Bad Request: No target path provided.');
-    return;
-  }
+const streams = {
+    ricknmorty: "https://adultswim-vodlive.cdn.turner.com/live/rick-and-morty/stream_de.m3u8",
+    stream2: "",
+    stream3: ""
+};
 
-  const proxyUrl = `${TARGET_URL}${targetPath}${parsedUrl.search || ''}`;
+// Proxy route to fetch the geo-blocked stream
+app.get("/proxy/:streamKey", async (req, res) => {
+    const { streamKey } = req.params;
+    const streamUrl = streams[streamKey];
 
-  console.log(`Proxying request to: ${proxyUrl}`);
+    if (!streamUrl) {
+        return res.status(404).json({ error: "Stream not found" });
+    }
 
-  const options = url.parse(proxyUrl);
-  options.method = req.method;
-  options.headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-    'Referer': 'https://www.adultswim.com/',
-    'Origin': 'https://www.adultswim.com/',
-  };
+    try {
+        // Fetch the stream data from the geo-blocked source
+        const response = await axios.get(streamUrl, {
+            responseType: "stream",
+            headers: {
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://adultswim.com/",
+            },
+        });
 
-  const proxyReq = https.request(options, (proxyRes) => {
-    res.writeHead(proxyRes.statusCode, {
-      ...proxyRes.headers,
-      'Access-Control-Allow-Origin': '*',
-    });
-
-    proxyRes.pipe(res, { end: true });
-  });
-
-  proxyReq.on('error', (err) => {
-    console.error('Proxy error:', err.message);
-    res.writeHead(500, { 'Content-Type': 'text/plain' });
-    res.end('Internal Server Error');
-  });
-
-  req.pipe(proxyReq, { end: true });
+        // Forward the stream response
+        res.set(response.headers);
+        response.data.pipe(res);
+    } catch (error) {
+        console.error("Error fetching stream:", error.message);
+        res.status(500).json({ error: "Failed to fetch stream" });
+    }
 });
 
-server.listen(PORT, () => {
-  console.log(`Proxy server running at http://localhost:${PORT}`);
+app.listen(PORT, () => {
+    console.log(`Proxy server running on http://localhost:${PORT}`);
 });
