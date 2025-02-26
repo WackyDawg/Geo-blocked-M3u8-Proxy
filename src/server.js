@@ -1,50 +1,58 @@
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
+const url = require("url");
 
 const app = express();
 const PORT = 3000;
+const BASE_URL = "https://adultswim-vodlive.cdn.turner.com/live/rick-and-morty/";
 
-app.use(cors()); // Allow cross-origin requests
+// Enable CORS for all requests
+app.use(cors());
 
-const streams = {
-    ricknmorty: "https://adultswim-vodlive.cdn.turner.com/live/rick-and-morty/stream_de.m3u8",
-    stream2: "",
-    stream3: ""
-};
-
-// Proxy route to fetch the geo-blocked stream
-app.get("/proxy/:streamKey", async (req, res) => {
-    const { streamKey } = req.params;
-    const streamUrl = streams[streamKey];
-
-    if (!streamUrl) {
-        return res.status(404).json({ error: "Stream not found" });
-    }
-
+/**
+ * Proxy .m3u8 playlists and rewrite stream URLs
+ */
+app.get("/proxy/playlist", async (req, res) => {
     try {
-        // Fetch the stream data from the geo-blocked source
-        const response = await axios.get(streamUrl, {
-            responseType: "stream",
-            headers: {
-                "User-Agent": "Mozilla/5.0",
-                "Referer": "https://adultswim.com/",
-            },
-        });
+        const streamUrl = `${BASE_URL}stream_de.m3u8`;
+        const response = await axios.get(streamUrl);
 
-        // Forward the stream response
+        // Rewrite all stream URLs to go through our proxy
+        let modifiedPlaylist = response.data.replace(
+            /(https?:\/\/[^\s]+)/g,
+            (match) => `${req.protocol}://${req.get("host")}/proxy/segment?url=${encodeURIComponent(match)}`
+        );
+
+        res.set("Content-Type", "application/vnd.apple.mpegurl");
+        res.send(modifiedPlaylist);
+    } catch (error) {
+        console.error("Error fetching playlist:", error.message);
+        res.status(500).json({ error: "Failed to fetch playlist" });
+    }
+});
+
+/**
+ * Proxy individual video segments (chunks) and sub-playlists
+ */
+app.get("/proxy/segment", async (req, res) => {
+    try {
+        const segmentUrl = req.query.url;
+        if (!segmentUrl) {
+            return res.status(400).json({ error: "Missing segment URL" });
+        }
+
+        // Fetch and stream the segment back
+        const response = await axios.get(segmentUrl, { responseType: "stream" });
         res.set(response.headers);
         response.data.pipe(res);
     } catch (error) {
-        console.error("Error fetching stream:", error.message);
-        res.status(500).json({ error: "Failed to fetch stream" });
+        console.error("Error fetching segment:", error.message);
+        res.status(500).json({ error: "Failed to fetch segment" });
     }
 });
 
-app.get('/', (req, res) => {
-    res.send('Proxy server running!');
-});
-
+// Start the proxy server
 app.listen(PORT, () => {
-    console.log(`Proxy server running on http://localhost:${PORT}`);
+    console.log(`Proxy server running at http://localhost:${PORT}`);
 });
