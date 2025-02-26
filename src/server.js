@@ -1,62 +1,68 @@
-const express = require("express");
-const axios = require("axios");
-const cors = require("cors");
-const url = require("url");
-
+const express = require('express');
+const axios = require('axios');
 const app = express();
-const PORT = 3000;
-const BASE_URL = "https://adultswim-vodlive.cdn.turner.com/live/rick-and-morty/";
+const PORT = process.env.PORT || 3000;
 
-// Enable CORS for all requests
-app.use(cors());
+// Stream configuration
+const streams = {
+  "ricknmorty": "https://adultswim-vodlive.cdn.turner.com/live/rick-and-morty/stream_de.m3u8",
+  "stream2": "",
+  "stream3": ""
+};
 
-/**
- * Proxy .m3u8 playlists and rewrite stream URLs
- */
-app.get("/proxy/playlist", async (req, res) => {
-    try {
-        const streamUrl = `${BASE_URL}stream_de.m3u8`;
-        const response = await axios.get(streamUrl);
+// Helper to get base URL
+const getBaseUrl = (url) => url.substring(0, url.lastIndexOf('/') + 1);
 
-        // Rewrite all stream URLs to go through our proxy
-        let modifiedPlaylist = response.data.replace(
-            /(https?:\/\/[^\s]+)/g,
-            (match) => `${req.protocol}://${req.get("host")}/proxy/segment?url=${encodeURIComponent(match)}`
-        );
+// Proxy route
+app.get('/stream/:streamName/*', async (req, res) => {
+  const streamName = req.params.streamName;
+  const originalUrl = streams[streamName];
+  
+  if (!originalUrl) return res.status(404).send('Stream not found');
+  
+  const baseUrl = getBaseUrl(originalUrl);
+  const requestedFile = req.params[0] || '';
+  
+  try {
+    // Construct original URL with query parameters
+    const clientUrl = new URL(req.originalUrl, 'http://dummy.com');
+    const targetUrl = new URL(requestedFile, baseUrl);
+    targetUrl.search = clientUrl.search;
 
-        res.set("Content-Type", "application/vnd.apple.mpegurl");
-        res.send(modifiedPlaylist);
-    } catch (error) {
-        console.error("Error fetching playlist:", error.message);
-        res.status(500).json({ error: "Failed to fetch playlist" });
+    // Fetch content
+    const response = await axios.get(targetUrl.href, { responseType: 'stream' });
+    const contentType = response.headers['content-type'];
+    
+    res.set('Content-Type', contentType);
+    
+    if (contentType.includes('mpegurl')) {
+      let data = '';
+      response.data.on('data', chunk => data += chunk);
+      response.data.on('end', () => {
+        res.send(processM3u8(data, streamName, targetUrl.href, baseUrl));
+      });
+    } else {
+      response.data.pipe(res);
     }
+  } catch (error) {
+    res.status(500).send('Error fetching stream');
+  }
 });
 
-/**
- * Proxy individual video segments (chunks) and sub-playlists
- */
-app.get("/proxy/segment", async (req, res) => {
+// Process M3U8 content
+const processM3u8 = (data, streamName, originalUrl, baseUrl) => {
+  return data.split('\n').map(line => {
+    if (line.startsWith('#') || !line.trim()) return line;
+    
     try {
-        const segmentUrl = req.query.url;
-        if (!segmentUrl) {
-            return res.status(400).json({ error: "Missing segment URL" });
-        }
+      const resolvedUrl = new URL(line, originalUrl);
+      if (resolvedUrl.href.startsWith(baseUrl)) {
+        const path = resolvedUrl.pathname.substring(new URL(baseUrl).pathname.length);
+        return `/stream/${streamName}${path}${resolvedUrl.search}`;
+      }
+    } catch (e) { /* Invalid URL */ }
+    return line;
+  }).join('\n');
+};
 
-        // Fetch and stream the segment back
-        const response = await axios.get(segmentUrl, { responseType: "stream" });
-        res.set(response.headers);
-        response.data.pipe(res);
-    } catch (error) {
-        console.error("Error fetching segment:", error.message);
-        res.status(500).json({ error: "Failed to fetch segment" });
-    }
-});
-
-app.get("/", (req, res) => {
-    res.send("Hello, World!");
-})
-
-// Start the proxy server
-app.listen(PORT, () => {
-    console.log(`Proxy server running at http://localhost:${PORT}`);
-});
+app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
