@@ -6,7 +6,7 @@ const { URL } = require('url');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const STREAMS = {
-  "example": "https://example.com/stream.m3u8",
+    "ricknmorty": "https://adultswim-vodlive.cdn.turner.com/live/rick-and-morty/stream_de.m3u8",
 };
 
 app.use(cors());
