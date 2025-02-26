@@ -36,8 +36,12 @@ app.get('/proxy', async (req, res) => {
             return res.send(modified);
         }
 
+        // Fix: Set headers correctly
+        for (const [key, value] of Object.entries(response.headers.raw())) {
+            res.setHeader(key, Array.isArray(value) ? value.join(', ') : value);
+        }
+
         // Stream other content (TS segments)
-        res.header(response.headers.raw());
         response.body.pipe(res);
     } catch (error) {
         console.error('Proxy error:', error);
