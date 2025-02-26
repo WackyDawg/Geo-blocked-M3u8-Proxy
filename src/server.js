@@ -6,18 +6,18 @@ const { URL } = require('url');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const STREAMS = {
-   "ricknmorty": "https://adultswim-vodlive.cdn.turner.com/live/rick-and-morty/stream_de.m3u8",
+  "example": "https://example.com/stream.m3u8",
 };
 
 app.use(cors());
 
-// Function to modify M3U8 playlist with proxy URLs
-function processM3U8(m3u8, baseUrl, serverHost) {
+// Function to modify M3U8 playlist to hide original URLs
+function processM3U8(m3u8, serverHost, streamId) {
   return m3u8.replace(/(^(?!#).*)/gm, (line) => {
     if (line.startsWith('http')) {
-      return `${serverHost}/segment?url=${encodeURIComponent(line)}`;
+      return `${serverHost}/segment/${streamId}`;
     }
-    return `${serverHost}/segment?url=${encodeURIComponent(new URL(line, baseUrl).href)}`;
+    return `${serverHost}/segment/${streamId}`;
   });
 }
 
@@ -38,7 +38,7 @@ app.get('/stream/:streamId', (req, res) => {
     proxyRes.on('data', (chunk) => data.push(chunk));
     proxyRes.on('end', () => {
       const m3u8 = Buffer.concat(data).toString();
-      const modified = processM3U8(m3u8, targetUrl, req.protocol + "://" + req.get("host"));
+      const modified = processM3U8(m3u8, req.protocol + "://" + req.get("host"), streamId);
       res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
       res.send(modified);
     });
@@ -48,11 +48,13 @@ app.get('/stream/:streamId', (req, res) => {
 });
 
 // Proxy route for segment files
-app.get('/segment', (req, res) => {
-  const segmentUrl = req.query.url;
-  if (!segmentUrl) return res.status(400).json({ error: "No segment URL provided" });
+app.get('/segment/:streamId', (req, res) => {
+  const streamId = req.params.streamId;
+  const targetUrl = STREAMS[streamId];
 
-  https.get(segmentUrl, (proxyRes) => {
+  if (!targetUrl) return res.status(404).json({ error: "Stream not found" });
+
+  https.get(targetUrl, (proxyRes) => {
     if (proxyRes.statusCode !== 200) {
       return res.status(proxyRes.statusCode).end();
     }
