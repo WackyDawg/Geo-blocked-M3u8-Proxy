@@ -1,63 +1,28 @@
 const express = require('express');
 const axios = require('axios');
-const { Parser } = require('m3u8-parser');
+const cors = require('cors');
+
 const app = express();
-const PORT = 3000;
+app.use(cors());
 
-// Allow CORS for HLS player testing
-app.use(require('cors')());
-
-// Proxy configuration
-const ORIGIN_URL = 'https://adultswim-vodlive.cdn.turner.com/live/rick-and-morty/stream_de.m3u8'; // Original stream URL
-const PROXY_URL = 'https://geo-blocked-m3u8-proxy.onrender.com';
-
-// Proxy .m3u8 playlists
-app.get('/*.m3u8', async (req, res) => {
+app.get('/proxy-stream', async (req, res) => {
   try {
-    // Fetch original playlist
-    const response = await axios.get(`${ORIGIN_URL}/${req.params[0]}.m3u8`);
-    const playlist = response.data;
+    const targetUrl = 'https://service-stitcher.clusters.pluto.tv/stitch/hls/channel/5db0ad56edc89300090d2ebb/master.m3u8?deviceType=web&deviceMake=Chrome&deviceModel=Chrome&sid=0c9d9262-bcd4-4b33-a78f-afea1ee4a67e&deviceId=781d4c79-fb21-4162-97a4-9f543683f22a&deviceVersion=74.0.3729.131&appVersion=2.5.1-f9a6096b469cfe5e4f1cc92cc697e8500e57891c&deviceDNT=0&userId=&advertisingId=&deviceLat=38.8177&deviceLon=-77.1527&app_name=&appName=&appStoreUrl=&architecture=&serverSideAds=true';
 
-    // Parse and rewrite URIs
-    const parser = new Parser();
-    parser.push(playlist);
-    parser.end();
-
-    let rewrittenPlaylist = playlist;
-    if (parser.manifest.segments) {
-      // Rewrite segment URIs to proxy endpoint
-      rewrittenPlaylist = playlist.replace(
-        /(.*\.ts)/g, 
-        `${PROXY_URL}/$1` // Rewrite to proxy URL
-      );
-    }
-
-    // Serve modified playlist
-    res.header('Content-Type', 'application/vnd.apple.mpegurl');
-    res.send(rewrittenPlaylist);
-  } catch (error) {
-    res.status(500).send('Error proxying playlist');
-  }
-});
-
-// Proxy .ts segments
-app.get('/*.ts', async (req, res) => {
-  try {
-    // Fetch and pipe original segment
-    const response = await axios({
-      method: 'get',
-      url: `${ORIGIN_URL}/${req.params[0]}.ts`,
-      responseType: 'stream'
+    const response = await axios.get(targetUrl, {
+      responseType: 'stream',
+      headers: {
+        'User-Agent': 'Mozilla/5.0', 
+      }
     });
 
-    // Forward headers and stream
-    res.header('Content-Type', 'video/MP2T');
+    res.set(response.headers);
     response.data.pipe(res);
   } catch (error) {
-    res.status(500).send('Error proxying segment');
+    console.error('Error fetching stream:', error.message);
+    res.status(500).send('Stream proxy error');
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Proxy server running on port ${PORT}`);
-});
+const PORT = 3000;
+app.listen(PORT, () => console.log(`Proxy server running on http://localhost:${PORT}`));
