@@ -1,4 +1,5 @@
 {
+  "type": "module",
   "scripts": {
     "start": "node src/server.js",  
     "stat": "node server.js",
