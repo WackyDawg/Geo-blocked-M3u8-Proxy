@@ -1,4 +1,9 @@
 {
+  "scripts": {
+    "start": "node src/server.js",  
+    "stat": "node server.js",
+    "proxy": "node src/proxy.js"
+  },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.2",
